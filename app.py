@@ -542,23 +542,24 @@ import requests
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def generar_ia(clave, modelo, prompt):
-    """Llama a Groq (API compatible con OpenAI). Si falla, prueba un modelo más pequeño. Falla rápido."""
-    ultimo = None
-    for m in dict.fromkeys([modelo, "llama-3.1-8b-instant"]):
+    """Llama a Groq (API compatible con OpenAI). Si falla, prueba un modelo de respaldo. Falla rápido."""
+    errores = []
+    for m in dict.fromkeys([modelo, "openai/gpt-oss-20b"]):
         try:
+            cuerpo = {"model": m, "temperature": 0.2, "max_tokens": 3000,
+                      "messages": [{"role": "user", "content": prompt}]}
+            if "gpt-oss" in m:
+                cuerpo["reasoning_effort"] = "low"   # razona poco: responde antes y no gasta el límite
             r = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {clave}", "Content-Type": "application/json"},
-                json={"model": m, "temperature": 0.2, "max_tokens": 600,
-                      "messages": [{"role": "user", "content": prompt}]},
-                timeout=15)
+                json=cuerpo, timeout=20)
             if r.status_code != 200:
-                raise RuntimeError(f"Groq respondió {r.status_code}: {r.text[:200]}")
+                raise RuntimeError(f"{r.status_code} {r.text[:150]}")
             return r.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            ultimo = e
-    raise ultimo
-
+            errores.append(f"[{m}] {e}")
+    raise RuntimeError(" | ".join(errores))
 
 def clave_ia():
     """Lee la clave guardada como secreto (el visitante no escribe nada)."""
@@ -582,19 +583,52 @@ if st.button("Generar conclusión con IA"):
         st.warning("Alcanzaste el máximo de 5 conclusiones con IA por sesión. "
                    "Usa la conclusión por reglas o tu propia clave en Opciones avanzadas.")
     else:
-        st.session_state["n_ia"] = st.session_state.get("n_ia", 0) + 1
-        prompt = f"""Eres experto en fisicoquímica farmacéutica. Redacta en español una conclusión breve y técnica
-(2 a 3 párrafos cortos, máximo 180 palabras) para un informe universitario, usando SOLO estos datos:
+        otros_r2 = ", ".join(f"{ORDENES[o]['nombre']} = {v['r2']:.4f}" for o, v in ajustes.items() if o != mejor)
+        perdida = (c[0] - c[-1]) / c[0] * 100
+        col_T, col_t90 = f"T ({unidad_T})", f"t90 ({unidad_t})"
+        p_fria = pred.loc[pred[col_T].idxmin()]
+        p_calida = pred.loc[pred[col_T].idxmax()]
+        if p_fria[col_T] != p_calida[col_T]:
+            comparacion = (f"t90 a {p_fria[col_T]:g} {unidad_T} = {p_fria[col_t90]:.4g} {unidad_t}; "
+                           f"t90 a {p_calida[col_T]:g} {unidad_T} = {p_calida[col_t90]:.4g} {unidad_t}; "
+                           f"relación = {p_fria[col_t90] / p_calida[col_t90]:.3g} veces")
+        else:
+            comparacion = "solo se predijo una temperatura"
+        prompt = f"""Eres profesor de fisicoquímica farmacéutica. Redacta en español la conclusión de un análisis cinético en 2 párrafos de prosa continua más una frase final (sin listas, sin viñetas, sin títulos).
 
+ESTILO
+- Lenguaje lacónico y técnico, como en las diapositivas de clase: frases cortas y directas, sin adornos.
+- Coma decimal (0,54) y cada valor con su unidad. Escribe t1/2, t90, t95 y t98 en texto plano.
+- Usa los términos: ingrediente funcional, concentración inicial, método integral, coeficiente de determinación (R²), constante cinética (ka), tiempo de vida media (t1/2), tiempo de utilidad, energía de activación (Ea).
+- Sin adjetivos de valoración ("rápida", "significativamente", "gran estabilidad"). Concluye con números y comparaciones, no con adjetivos.
+- Máximo 200 palabras en total.
+
+DEFINICIONES CORRECTAS (no las cambies)
+- t1/2: tiempo en que se ha degradado el 50 % de la concentración inicial del ingrediente funcional.
+- t90: tiempo en que se ha degradado el 10 % (queda el 90 %). t95: se ha degradado el 5 %. t98: se ha degradado el 2 %.
+- Nunca digas que t90 es "el 90 % de degradación".
+
+ESTRUCTURA
+Párrafo 1 (resultados): orden de reacción y R² por el método integral, comparado con los R² de los otros modelos; ka con su unidad; t1/2, t90 y t95 con su definición; relaciona la degradación alcanzada con la duración del ensayo.
+Si la diferencia entre los R² es menor a 0,005, escribe: "Dado que los coeficientes de determinación son muy próximos, no es posible determinar el orden real de la reacción", y menciona la poca degradación.
+Párrafo 2 (análisis): Ea con el R² de Arrhenius y el número de temperaturas usadas; cómo cambia el t90 entre la temperatura más baja y la más alta predichas (usa la relación dada); t90 a la temperatura de referencia frente al t90 del ensayo. Si los datos muestran que el t90 aumenta al bajar la temperatura, dilo como resultado, sin suponer condiciones como refrigeración. Limitación: menciona la extrapolación solo si en los datos dice "sí"; aclara que el t90 estimado debe confirmarse con un estudio de estabilidad.
+Frase final (conclusión): una sola frase que integre orden de reacción, ka, t90 a la temperatura de referencia y la tendencia del t90 con la temperatura.
+
+MODELO DE REDACCIÓN (sustituye por los datos reales; no copies los números)
+"La cinética de degradación corresponde a orden [X] (R² = [..]) frente a [otros R²], con ka = [..] [unidad]. t1/2 = [..] [unidad]: tiempo en que se ha degradado el 50 % de la concentración inicial del ingrediente funcional. t90 = [..] [unidad] corresponde a una degradación del 10 %, y t95 = [..] [unidad] a una del 5 %. En el ensayo se degradó [..] % en [..] [unidad]. La energía de activación obtenida por la ecuación de Arrhenius es Ea = [..] kJ/mol (R² = [..], [n] temperaturas). El t90 pasa de [..] [unidad] a [T1] °C a [..] [unidad] a [T2] °C ([..] veces)."
+
+DATOS (usa solo estos; no inventes valores, mecanismos ni referencias)
 Fármaco: {farmaco or 'no especificado'}
-Orden de reacción: {ORDENES[mejor]['nombre']} (R² = {a['r2']:.4f}); k = {a['k']:.4g} {unidad_k}
+Puntos experimentales: {len(t)}; duración del ensayo: {t[-1] - t[0]:g} {unidad_t}
+Degradación alcanzada en el ensayo: {perdida:.1f} %
+Orden de reacción: {ORDENES[mejor]['nombre']} (R² = {a['r2']:.4f})
+R² de los otros modelos: {otros_r2}
+Constante cinética: ka = {a['k']:.4g} {unidad_k}
 t1/2 = {tiempos['t50']:.4g} {unidad_t}; t90 = {tiempos['t90']:.4g} {unidad_t}; t95 = {tiempos['t95']:.4g} {unidad_t}; t98 = {tiempos['t98']:.4g} {unidad_t}
-Arrhenius: Ea = {Ea/1000:.1f} kJ/mol, R² = {r2_arr:.4f}, Q10 = {Q10:.2f}
+Arrhenius: Ea = {Ea/1000:.1f} kJ/mol; A = {A_pre:.3e}; R² = {r2_arr:.4f}; temperaturas usadas: {len(T_K)}
 A {T_ref:g} {unidad_T}: t90 = {t90_ref:.4g} {unidad_t}
-Extrapolación fuera del rango experimental: {'sí' if fuera else 'no'}
-
-Incluye: orden y calidad del ajuste, sensibilidad a la temperatura (Ea), implicación para el almacenamiento
-y una limitación. No inventes valores, mecanismos ni referencias."""
+Comparación entre temperaturas predichas: {comparacion}
+Extrapolación fuera del rango experimental: {'sí' if fuera else 'no'}"""
         try:
             with st.spinner("Generando conclusión..."):
                 st.session_state["texto_ia"] = generar_ia(clave, modelo, prompt)
