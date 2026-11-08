@@ -537,48 +537,43 @@ st.subheader("Conclusión automática")
 st.markdown(texto_reglas)
 
 # ---- Conclusión con IA ----
+import requests
+
+
 @st.cache_data(show_spinner=False, ttl=3600)
 def generar_ia(clave, modelo, prompt):
-    """Una llamada corta a Gemini (sin búsqueda web). El mismo prompt reutiliza la respuesta guardada."""
-    import time
-    from google import genai
-    from google.genai import types
-    cliente = genai.Client(api_key=clave, http_options=types.HttpOptions(timeout=60_000))
-    rapido = True
-    for _ in range(3):
-        kw = dict(temperature=0.2, max_output_tokens=700)
-        if rapido:
-            kw["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    """Llama a Groq (API compatible con OpenAI). Si falla, prueba un modelo más pequeño. Falla rápido."""
+    ultimo = None
+    for m in dict.fromkeys([modelo, "llama-3.1-8b-instant"]):
         try:
-            resp = cliente.models.generate_content(
-                model=modelo, contents=prompt, config=types.GenerateContentConfig(**kw))
-            return resp.text
+            r = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {clave}", "Content-Type": "application/json"},
+                json={"model": m, "temperature": 0.2, "max_tokens": 600,
+                      "messages": [{"role": "user", "content": prompt}]},
+                timeout=15)
+            if r.status_code != 200:
+                raise RuntimeError(f"Groq respondió {r.status_code}: {r.text[:200]}")
+            return r.json()["choices"][0]["message"]["content"]
         except Exception as e:
-            msg = str(e).lower()
-            if rapido and "thinking" in msg:
-                rapido = False
-                continue
-            if any(x in msg for x in ("503", "unavailable", "disconnected", "timed out", "timeout", "ssl")):
-                time.sleep(3)
-                continue
-            raise
-    raise RuntimeError("El modelo no respondió. Intenta de nuevo en un momento.")
+            ultimo = e
+    raise ultimo
 
 
-def clave_gemini():
+def clave_ia():
     """Lee la clave guardada como secreto (el visitante no escribe nada)."""
     try:
-        return st.secrets["GEMINI_API_KEY"]
+        return st.secrets["GROQ_API_KEY"]
     except Exception:
         return ""
 
 
-st.subheader("Conclusión con IA (Gemini)")
+st.subheader("Conclusión con IA")
 farmaco = st.text_input("Nombre del fármaco o producto (opcional)", "")
 with st.expander("Opciones avanzadas"):
-    clave_propia = st.text_input("Usar mi propia clave de Gemini (opcional)", type="password")
-    modelo = st.text_input("Modelo de Gemini", "gemini-3.8-flash")
-clave = clave_propia or clave_gemini()
+    clave_propia = st.text_input("Usar mi propia clave de Groq (opcional)", type="password")
+    modelo = st.text_input("Modelo", "openai/gpt-oss-120b")
+clave = clave_propia or clave_ia()
 
 if st.button("Generar conclusión con IA"):
     if not clave:
@@ -606,6 +601,7 @@ y una limitación. No inventes valores, mecanismos ni referencias."""
         except Exception as e:
             st.error("No se pudo generar la conclusión con IA en este momento. "
                      "Usa la conclusión automática por reglas de arriba.")
+            st.caption(f"Detalle técnico: {e}")
 
 if "texto_ia" in st.session_state:
     st.markdown(st.session_state["texto_ia"])
