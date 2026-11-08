@@ -125,7 +125,7 @@ def grafico(t, c, ajuste, unidad_t="h", unidad_c="mg/mL"):
 # ---------------- INTERFAZ ----------------
 st.title("Análisis cinético y predicción de estabilidad")
 st.caption("Fisicoquímica CIFAL, UdeA 2026-2")
-st.caption("Diseñado por: P.Medina, L. Hernández, J. Hincapie, X. Lopera")
+st.caption("Diseñado por: L. Hernández, J. Hincapie, X. Lopera, P.Medina")
 
 st.header("1. Ingreso de datos")
 col_a, _ = st.columns([1, 1])
@@ -565,17 +565,29 @@ def generar_ia(clave, modelo, prompt):
     raise RuntimeError("El modelo no respondió. Intenta de nuevo en un momento.")
 
 
+def clave_gemini():
+    """Lee la clave guardada como secreto (el visitante no escribe nada)."""
+    try:
+        return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        return ""
+
+
 st.subheader("Conclusión con IA (Gemini)")
-clave = st.text_input("Clave de API de Gemini", type="password",
-                      help="Se obtiene gratis en aistudio.google.com/apikey. No se guarda.")
 farmaco = st.text_input("Nombre del fármaco o producto (opcional)", "")
-modelo = st.text_input("Modelo de Gemini", "gemini-3.8-flash",
-                       help="Si da error 404, cambia el nombre por uno vigente en aistudio.google.com")
+with st.expander("Opciones avanzadas"):
+    clave_propia = st.text_input("Usar mi propia clave de Gemini (opcional)", type="password")
+    modelo = st.text_input("Modelo de Gemini", "gemini-3.8-flash")
+clave = clave_propia or clave_gemini()
 
 if st.button("Generar conclusión con IA"):
     if not clave:
-        st.error("Escribe tu clave de API para usar la IA.")
+        st.error("La IA no está disponible en este momento. Usa la conclusión automática por reglas de arriba.")
+    elif st.session_state.get("n_ia", 0) >= 5 and not clave_propia:
+        st.warning("Alcanzaste el máximo de 5 conclusiones con IA por sesión. "
+                   "Usa la conclusión por reglas o tu propia clave en Opciones avanzadas.")
     else:
+        st.session_state["n_ia"] = st.session_state.get("n_ia", 0) + 1
         prompt = f"""Eres experto en fisicoquímica farmacéutica. Redacta en español una conclusión breve y técnica
 (2 a 3 párrafos cortos, máximo 180 palabras) para un informe universitario, usando SOLO estos datos:
 
@@ -592,7 +604,8 @@ y una limitación. No inventes valores, mecanismos ni referencias."""
             with st.spinner("Generando conclusión..."):
                 st.session_state["texto_ia"] = generar_ia(clave, modelo, prompt)
         except Exception as e:
-            st.error(f"No se pudo usar la IA ({e}). Usa la conclusión por reglas de arriba.")
+            st.error("No se pudo generar la conclusión con IA en este momento. "
+                     "Usa la conclusión automática por reglas de arriba.")
 
 if "texto_ia" in st.session_state:
     st.markdown(st.session_state["texto_ia"])
