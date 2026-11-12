@@ -5,3 +5,5 @@ scipy
 plotly
 openpyxl
 google-genai
+matplotlib
+reportlab
