@@ -148,6 +148,14 @@ with col_titulo:
     st.markdown("<h1 style='margin:0; padding:0'>Proyección de estabilidad de principios activos y análisis cinético de degradación</h1>",
                 unsafe_allow_html=True)
     st.caption("Fisicoquímica · Universidad de Antioquia · 2026-2")
+
+# ---- Manual de usuario ----
+RUTA_MANUAL = "manual_usuario.pdf"
+if os.path.exists(RUTA_MANUAL):
+    with open(RUTA_MANUAL, "rb") as f_manual:
+        st.download_button("Descargar manual de usuario", f_manual.read(),
+                           file_name="Manual de usuario - Cinética química.pdf",
+                           mime="application/pdf", key="btn_manual")
 st.markdown("---")
 
 # ---------------- CÁLCULOS ----------------
