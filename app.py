@@ -16,6 +16,12 @@ st.set_page_config(page_title="Cinética química", page_icon="⚛", layout="wid
 
 FUENTE = "Computer Modern Serif, serif"
 
+# Colores "comodín" del tema Plotly de Streamlit: el navegador los reemplaza por el
+# color de texto y de fondo del tema activo (claro u oscuro) cada vez que se dibuja.
+# Requiere st.plotly_chart(..., theme="streamlit").
+TINTA = "#000037"  # texto/líneas: casi negro en modo claro, casi blanco en modo oscuro
+FONDO = "#000038"  # fondo del tema activo
+
 st.markdown("""
 <style>
 @import url('https://cdn.jsdelivr.net/gh/dreampulse/computer-modern-web-font@master/fonts.css');
@@ -26,28 +32,28 @@ st.markdown("""
 }
 .stApp p, .stApp label, .stApp li { font-size: 1.08rem; }
 
-.stApp, .stApp p, .stApp label, .stApp li, .stApp h1, .stApp h2, .stApp h3, .stApp h4,
-.stApp [data-testid="stMetricValue"], .stApp [data-testid="stMetricLabel"],
-.stApp [data-testid="stCaptionContainer"] { color: #000 !important; }
+/* Los colores de texto los pone el tema de Streamlit (claro u oscuro);
+   bordes y líneas usan currentColor para seguir siempre al color del texto. */
+.stApp [data-testid="stCaptionContainer"] { color: inherit !important; opacity: 0.75; }
 .stApp h2 { margin-top: 2.2rem; }
 footer { visibility: hidden; }
 
-/* Cajas con borde: esquinas rectas y línea negra */
+/* Cajas con borde: esquinas rectas y línea del color del texto */
 div[data-testid="stVerticalBlockBorderWrapper"] {
-    border: 1px solid #000 !important; border-radius: 0 !important; }
+    border: 1px solid currentColor !important; border-radius: 0 !important; }
 
-/* Tabla editable: esquinas rectas y marco oscuro */
+/* Tabla editable: esquinas rectas y marco del color del texto */
 div[data-testid="stDataFrame"], div[data-testid="stDataFrame"] > div,
 div[data-testid="stDataFrameResizable"] { border-radius: 0 !important; }
-div[data-testid="stDataFrame"] { border: 1.5px solid #000 !important; }
+div[data-testid="stDataFrame"] { border: 1.5px solid currentColor !important; }
 
-/* Tablas de resultados (estilo libro) */
-.bloque-tabla { background: #fff; color: #000; padding: 12px 10px 6px 10px; margin: 0.5rem 0 0.4rem 0; overflow-x: auto; }
+/* Tablas de resultados (estilo libro): fondo del tema, líneas del color del texto */
+.bloque-tabla { background: transparent; color: inherit; padding: 12px 10px 6px 10px; margin: 0.5rem 0 0.4rem 0; overflow-x: auto; }
 .bloque-tabla .leyenda-tabla { text-align: center; font-size: 0.98rem; margin-bottom: 0.6rem; }
-table.tabla-libro { border-collapse: collapse; margin: 0 auto 0.4rem auto; font-size: 1.02rem; }
-table.tabla-libro thead tr { border-top: 2px solid #000; border-bottom: 1px solid #000; }
-table.tabla-libro tbody tr:last-child { border-bottom: 2px solid #000; }
-table.tabla-libro th, table.tabla-libro td { padding: 5px 20px; text-align: center; border: none; background: #fff; color: #000; }
+table.tabla-libro { border-collapse: collapse; margin: 0 auto 0.4rem auto; font-size: 1.02rem; color: inherit; }
+table.tabla-libro thead tr { border-top: 2px solid currentColor; border-bottom: 1px solid currentColor; }
+table.tabla-libro tbody tr:last-child { border-bottom: 2px solid currentColor; }
+table.tabla-libro th, table.tabla-libro td { padding: 5px 20px; text-align: center; border: none; background: transparent !important; color: inherit; }
 table.tabla-libro th { font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
@@ -84,26 +90,28 @@ def tabla_libro(df, leyenda, nombre, formatos=None):
 
 
 def estilo_ejes(fig, titulo, xt, yt, x_range=None, y_range=None):
-    """Estilo de revista científica: fondo blanco, todo negro, marco completo, una sola fuente."""
+    """Estilo de revista científica: monocromo, marco completo, una sola fuente.
+    Los colores siguen al tema (tinta oscura sobre fondo claro, o al revés)."""
     eje = dict(showgrid=False, zeroline=False, showline=True, mirror=True,
-               linecolor="black", linewidth=1.5, ticks="inside", ticklen=5,
-               tickcolor="black", tickfont=dict(family=FUENTE, size=14, color="black"))
+               linecolor=TINTA, linewidth=1.5, ticks="inside", ticklen=5,
+               tickcolor=TINTA, tickfont=dict(family=FUENTE, size=14, color=TINTA))
     fig.update_layout(
-        font=dict(family=FUENTE, size=15, color="black"),
+        font=dict(family=FUENTE, size=15, color=TINTA),
         title=dict(text=titulo, x=0.5, xanchor="center",
-                   font=dict(family=FUENTE, size=17, color="black")),
+                   font=dict(family=FUENTE, size=17, color=TINTA)),
         height=400, margin=dict(t=90, b=50, l=60, r=20),
-        showlegend=False, plot_bgcolor="white", paper_bgcolor="white",
-        xaxis=dict(title=dict(text=xt, font=dict(family=FUENTE, size=16, color="black")),
+        showlegend=False, plot_bgcolor=FONDO, paper_bgcolor=FONDO,
+        hoverlabel=dict(font=dict(family=FUENTE)),
+        xaxis=dict(title=dict(text=xt, font=dict(family=FUENTE, size=16, color=TINTA)),
                    range=x_range, **eje),
-        yaxis=dict(title=dict(text=yt, font=dict(family=FUENTE, size=16, color="black")),
+        yaxis=dict(title=dict(text=yt, font=dict(family=FUENTE, size=16, color=TINTA)),
                    range=y_range, **eje))
     return fig
 
 
 def mostrar(fig, nombre):
     """Muestra el gráfico (una sola vez); el botón de cámara descarga un PNG de alta resolución."""
-    st.plotly_chart(fig, use_container_width=True, theme=None, key=f"pl_{nombre}",
+    st.plotly_chart(fig, use_container_width=True, theme="streamlit", key=f"pl_{nombre}",
                     config={"displaylogo": False,
                             "toImageButtonOptions": {"format": "png", "filename": nombre,
                                                      "width": 900, "height": 600, "scale": 4}})
@@ -216,10 +224,10 @@ def grafico(t, c, ajuste, unidad_t="h", unidad_c="mg/mL"):
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=t, y=ajuste["y"], mode="markers",
-                             marker=dict(size=10, color="black", symbol=simbolos[o])))
+                             marker=dict(size=10, color=TINTA, symbol=simbolos[o])))
     t_lin = np.linspace(t.min(), t.max(), 100)
     fig.add_trace(go.Scatter(x=t_lin, y=ajuste["pendiente"] * t_lin + ajuste["intercepto"],
-                             mode="lines", line=dict(color="black", width=1.5, dash="dash")))
+                             mode="lines", line=dict(color=TINTA, width=1.5, dash="dash")))
     signo = "+" if ajuste["intercepto"] >= 0 else "-"
     ecuacion = f"y = {ajuste['pendiente']:.4g}x {signo} {abs(ajuste['intercepto']):.4g}"
 
@@ -467,8 +475,8 @@ T_c = np.linspace(T_user.min(), T_user.max(), 100)
 k_c = A_pre * np.exp(-Ea / (R_GAS * (T_c + offset)))
 fig_k = go.Figure()
 fig_k.add_trace(go.Scatter(x=T_user, y=k_arr, mode="markers",
-                           marker=dict(size=10, color="black", symbol="square")))
-fig_k.add_trace(go.Scatter(x=T_c, y=k_c, mode="lines", line=dict(color="black", width=1.5, dash="dash")))
+                           marker=dict(size=10, color=TINTA, symbol="square")))
+fig_k.add_trace(go.Scatter(x=T_c, y=k_c, mode="lines", line=dict(color=TINTA, width=1.5, dash="dash")))
 estilo_ejes(fig_k, "k vs T<br><sup>k = A·e^(−Ea/RT)</sup>", f"Temperatura ({unidad_T})", "k",
             [T_user.min() - pad_T, T_user.max() + pad_T], [0, k_arr.max() * 1.12])
 
@@ -480,9 +488,9 @@ pad_y = (ln_k.max() - ln_k.min()) * 0.12 or 1
 x_l = np.linspace(inv_T.min(), inv_T.max(), 100)
 fig_lin = go.Figure()
 fig_lin.add_trace(go.Scatter(x=inv_T, y=ln_k, mode="markers",
-                             marker=dict(size=10, color="black", symbol="square")))
+                             marker=dict(size=10, color=TINTA, symbol="square")))
 fig_lin.add_trace(go.Scatter(x=x_l, y=reg_arr.slope * x_l + reg_arr.intercept,
-                             mode="lines", line=dict(color="black", width=1.5, dash="dash")))
+                             mode="lines", line=dict(color=TINTA, width=1.5, dash="dash")))
 estilo_ejes(fig_lin, f"ln k vs 1/T<br><sup>{ecuacion} | R² = {r2_arr:.4f}</sup>",
             "1/T (K⁻¹)", "ln k",
             [inv_T.min() - pad_x, inv_T.max() + pad_x], [ln_k.min() - pad_y, ln_k.max() + pad_y])
