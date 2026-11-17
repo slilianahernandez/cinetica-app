@@ -419,9 +419,11 @@ with ca1:
         type=["csv", "xlsx"], key=f"archivo_arr_{v_a}",
         help="La primera fila debe ser el encabezado (por ejemplo: Temperatura, k).")
 arr_ejemplo = pd.DataFrame({
-    "Temperatura": [40.0, 50.0, 60.0, 70.0],
-    "k": [0.0021, 0.0058, 0.0148, 0.0360],
+    "Temperatura": [4.0, 25.0, 40.0, 60.0],
+    "k": [4.00e-05, 4.34e-04, 2.14e-03, 1.32e-02],
 })
+if unidad_T == "K":
+    arr_ejemplo["Temperatura"] = arr_ejemplo["Temperatura"] + 273.15
 arr_vacio = pd.DataFrame({"Temperatura": pd.Series(dtype=float), "k": pd.Series(dtype=float)})
 arr_base = arr_vacio if vacio_a else arr_ejemplo
 nombre_arr = ""
@@ -434,7 +436,7 @@ if archivo_arr is not None:
         ca1.error(f"No se pudo leer el archivo ({e}). Se muestra la tabla de ejemplo.")
 with ca2:
     arr = st.data_editor(arr_base, num_rows="dynamic", use_container_width=True,
-                         key=f"arrhenius_{v_a}_{nombre_arr}_{int(vacio_a)}")
+                         key=f"arrhenius_{v_a}_{nombre_arr}_{int(vacio_a)}_{unidad_T}")
     ba1, ba2, _ = st.columns([1, 1.3, 2])
     ba1.button("Limpiar tabla", on_click=limpiar_tabla, args=("arr",), key="btn_limpiar_arr")
     ba2.button("Restaurar ejemplo", on_click=restaurar_ejemplo, args=("arr",), key="btn_ejemplo_arr")
@@ -535,10 +537,10 @@ if orden_pred != mejor:
 cp1, cp2, cp3 = st.columns(3)
 with cp1:
     T_ref = st.number_input(f"Temperatura de referencia ({unidad_T})",
-                            value=25.0 if unidad_T == "°C" else 298.15)
+                            value=32.0 if unidad_T == "°C" else 305.15)
 with cp2:
     txt_temps = st.text_input(f"Temperaturas a predecir ({unidad_T}), separadas por coma",
-                              "4, 25, 30, 40" if unidad_T == "°C" else "277, 298, 303, 313")
+                              "25, 37, 40, 50" if unidad_T == "°C" else "298.15, 310.15, 313.15, 323.15")
 with cp3:
     a0_pred = st.number_input(f"Concentración inicial ({unidad_c})", value=float(c[0]))
 
