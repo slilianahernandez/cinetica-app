@@ -139,6 +139,191 @@ def restaurar_ejemplo(clave):
     st.session_state[f"v_{clave}"] = st.session_state.get(f"v_{clave}", 0) + 1
 
 
+# Valores por defecto de la predicción (los usa la app y el manual de usuario)
+T_REF_C = 32.0                     # temperatura de referencia en °C
+TEMPS_PRED_C = [25, 37, 40, 50]    # temperaturas a predecir en °C
+
+
+def fuentes_pdf():
+    """Registra una fuente serif con soporte de ², ⁻¹, ·, etc. (viene con matplotlib)."""
+    import matplotlib
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    ruta = os.path.join(matplotlib.get_data_path(), "fonts", "ttf")
+    try:
+        pdfmetrics.registerFont(TTFont("STIX", os.path.join(ruta, "STIXGeneral.ttf")))
+        pdfmetrics.registerFont(TTFont("STIX-B", os.path.join(ruta, "STIXGeneralBol.ttf")))
+        pdfmetrics.registerFont(TTFont("STIX-I", os.path.join(ruta, "STIXGeneralItalic.ttf")))
+        pdfmetrics.registerFont(TTFont("STIX-BI", os.path.join(ruta, "STIXGeneralBolIta.ttf")))
+        pdfmetrics.registerFontFamily("STIX", normal="STIX", bold="STIX-B",
+                                      italic="STIX-I", boldItalic="STIX-BI")
+        return "STIX", "STIX-B"
+    except Exception:
+        return "Times-Roman", "Times-Bold"
+
+
+@st.cache_data(show_spinner=False)
+def generar_manual(t_ref_c, temps_c, logo="logo.png"):
+    """Arma un manual de usuario breve en PDF con los valores por defecto actuales de la app."""
+    from PIL import Image as PILImage
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_JUSTIFY
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    f_n, f_b = fuentes_pdf()
+    ANCHO = A4[0] - 4 * cm
+    est_t = ParagraphStyle("t", fontName=f_b, fontSize=18, leading=22, spaceAfter=3)
+    est_s = ParagraphStyle("s", fontName=f_n, fontSize=10.5, leading=14, textColor=colors.HexColor("#333333"))
+    est_h = ParagraphStyle("h", fontName=f_b, fontSize=13, leading=16, spaceBefore=14, spaceAfter=5,
+                           keepWithNext=True)
+    est_p = ParagraphStyle("p", fontName=f_n, fontSize=10.5, leading=14.5, alignment=TA_JUSTIFY, spaceAfter=5)
+    est_li = ParagraphStyle("li", parent=est_p, leftIndent=14, bulletIndent=2, spaceAfter=3)
+    est_cel = ParagraphStyle("cel", fontName=f_n, fontSize=9.5, leading=12)
+
+    t_ref_k = t_ref_c + 273.15
+    temps_txt = ", ".join(f"{x:g}" for x in temps_c)
+
+    story = []
+    titulo = [Paragraph("Manual de usuario", est_t),
+              Paragraph("Proyección de estabilidad de principios activos y análisis cinético de degradación", est_s),
+              Paragraph("Fisicoquímica · Universidad de Antioquia · 2026-2", est_s)]
+    if logo and os.path.exists(logo):
+        img = PILImage.open(logo).convert("RGBA")
+        img.thumbnail((400, 400))          # logo liviano: el PDF queda pequeño
+        fondo = PILImage.new("RGB", img.size, "white")
+        fondo.paste(img, mask=img.split()[3])
+        buf_logo = io.BytesIO()
+        fondo.save(buf_logo, format="PNG")
+        buf_logo.seek(0)
+        lw, lh = img.size
+        enc = Table([[Image(buf_logo, width=2.2 * cm, height=2.2 * cm * lh / lw), titulo]],
+                    colWidths=[2.8 * cm, ANCHO - 2.8 * cm])
+        enc.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        story.append(enc)
+    else:
+        story += titulo
+    story.append(Spacer(1, 8))
+
+    def h(txt):
+        story.append(Paragraph(txt, est_h))
+
+    def p(txt):
+        story.append(Paragraph(txt, est_p))
+
+    def lista(items):
+        for it in items:
+            story.append(Paragraph(it, est_li, bulletText="•"))
+
+    h("¿Qué hace la aplicación?")
+    p("A partir de datos de concentración en función del tiempo, determina el orden de reacción por el "
+      "método integral y calcula la constante cinética (k<sub>a</sub>), el tiempo de vida media (t<sub>1/2</sub>) "
+      "y los tiempos de utilidad (t<sub>90</sub>, t<sub>95</sub> y t<sub>98</sub>). Con la ecuación de Arrhenius "
+      "predice la estabilidad a otras temperaturas. Los resultados se actualizan solos al cambiar los datos.")
+
+    h("1. Entrada de datos")
+    lista([
+        "Escriba las unidades de tiempo y de concentración. Son solo etiquetas: la aplicación no convierte valores.",
+        "Ingrese los datos escribiendo en la tabla, pegándolos desde Excel (Control + V) o subiendo un archivo "
+        ".csv o .xlsx con encabezado (columna 1 = tiempo, columna 2 = concentración).",
+        "Se necesitan al menos 3 puntos y todas las concentraciones deben ser mayores que 0. "
+        "Use punto como separador decimal.",
+        "<b>Limpiar tabla</b> borra los datos; <b>Restaurar ejemplo</b> vuelve a cargar el ejemplo.",
+    ])
+
+    h("2. Orden de reacción y parámetros cinéticos")
+    lista([
+        "La aplicación grafica [A], ln[A] y 1/[A] contra el tiempo (orden cero, uno y dos) y muestra la recta y su R².",
+        "Elige como orden más probable el de mayor R² entre los que dan una k positiva. Si los R² difieren en "
+        "menos de 0,005, aparece un aviso: el orden no es concluyente.",
+        "Muestra k<sub>a</sub> con sus unidades y los recuadros de t<sub>1/2</sub>, t<sub>90</sub>, t<sub>95</sub> "
+        "y t<sub>98</sub>.",
+    ])
+
+    h("3. Módulo Arrhenius")
+    lista([
+        "Elija °C o K <b>antes</b> de ingresar los datos. Si cambia la unidad, la tabla vuelve al ejemplo.",
+        "Ingrese al menos 3 pares temperatura–k. Todas las k deben ser mayores que 0, del mismo orden de "
+        "reacción y con las mismas unidades.",
+        "La k de la sección 2 no se agrega sola: si la quiere usar, escríbala como una fila más.",
+        "Se obtienen la energía de activación (E<sub>a</sub>), el factor preexponencial (A) y el R² del ajuste. "
+        "Si el R² es menor que 0,95, las predicciones son poco confiables.",
+    ])
+
+    h("4. Predicción de estabilidad")
+    lista([
+        "<b>Orden de reacción:</b> por defecto, el detectado en la sección 2. Se puede cambiar para comparar.",
+        f"<b>Temperatura de referencia:</b> por defecto {t_ref_c:g} °C ({t_ref_k:g} K).",
+        f"<b>Temperaturas a predecir:</b> separadas por comas, con punto decimal (por defecto {temps_txt} °C).",
+        "<b>Concentración inicial:</b> por defecto, la primera concentración de la tabla.",
+        "La Tabla 4 muestra k, t<sub>1/2</sub>, t<sub>98</sub>, t<sub>95</sub> y t<sub>90</sub> a cada temperatura; "
+        "la primera fila es la de referencia. Si una temperatura está fuera del rango experimental, aparece un "
+        "aviso de extrapolación.",
+    ])
+
+    h("5. Conclusiones e informe")
+    lista([
+        "La conclusión automática aparece sola y se actualiza con los datos.",
+        "<b>Generar conclusión con IA</b> redacta una conclusión (hasta 5 por sesión). Puede escribir antes el "
+        "nombre del fármaco. Si cambia los datos, vuelva a generarla.",
+        "<b>Descargar conclusiones (.txt)</b> guarda las conclusiones en un archivo de texto.",
+        "<b>Generar informe PDF</b> y luego <b>Descargar informe completo (PDF)</b> crea un informe con todas las "
+        "tablas, gráficos, ecuaciones y conclusiones. Genere primero la conclusión con IA si quiere incluirla.",
+    ])
+
+    h("Descargas")
+    lista([
+        "<b>Tablas:</b> botones Descargar Excel o Descargar CSV debajo de cada una.",
+        "<b>Gráficos:</b> ícono de cámara (arriba a la derecha del gráfico) para guardarlo como PNG. "
+        "La imagen sale con los colores del tema activo; use el modo claro para fondo blanco.",
+    ])
+
+    h("Mensajes frecuentes")
+    p("Los mensajes rojos detienen el cálculo hasta corregir el problema; los amarillos son avisos.")
+    mensajes = [
+        ("Ingrese al menos 3 puntos / pares", "Agregue más filas completas a la tabla."),
+        ("Las concentraciones deben ser mayores que 0", "Corrija o elimine los valores iguales a 0 o negativos."),
+        ("No se pudo leer el archivo", "Use .csv o .xlsx con encabezado y las columnas en el orden indicado."),
+        ("Ningún modelo dio una constante k positiva", "Revise que las columnas no estén invertidas."),
+        ("Los R² son muy parecidos entre modelos", "Use más puntos o datos con mayor degradación."),
+        ("Todas las k deben ser > 0 y T > 0 K", "Corrija el valor y verifique que la unidad (°C o K) sea la correcta."),
+        ("El R² de Arrhenius es bajo", "Revise los datos; tome las predicciones con precaución."),
+        ("Escriba las temperaturas solo con números", f"Escriba solo números separados por comas: {temps_txt}."),
+        ("Extrapolación", "Solo es un aviso: la predicción fuera del rango es menos confiable."),
+        ("La IA no está disponible / límite alcanzado", "Use la conclusión automática."),
+        ("Los datos cambiaron desde el último informe", "Genere el informe PDF de nuevo."),
+    ]
+    filas = [[Paragraph("<b>Mensaje</b>", est_cel), Paragraph("<b>Qué hacer</b>", est_cel)]]
+    filas += [[Paragraph(m, est_cel), Paragraph(q, est_cel)] for m, q in mensajes]
+    tb = Table(filas, colWidths=[ANCHO * 0.45, ANCHO * 0.55], hAlign="CENTER")
+    tb.setStyle(TableStyle([
+        ("LINEABOVE", (0, 0), (-1, 0), 1.2, colors.black),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.black),
+        ("LINEBELOW", (0, -1), (-1, -1), 1.2, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+    story.append(tb)
+
+    h("Créditos")
+    p("Aplicación desarrollada para el curso de Fisicoquímica CIFAL, Universidad de Antioquia, 2026-2. "
+      "Diseñado por: L. Hernández, J. Hincapie, X. Lopera, P. Medina.")
+
+    def pie(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(f_n, 8.5)
+        canvas.drawString(2 * cm, 1.2 * cm, "Manual de usuario · Fisicoquímica CIFAL · 2026-2")
+        canvas.drawRightString(A4[0] - 2 * cm, 1.2 * cm, f"Página {doc.page}")
+        canvas.restoreState()
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm,
+                            topMargin=1.8 * cm, bottomMargin=2 * cm, title="Manual de usuario")
+    doc.build(story, onFirstPage=pie, onLaterPages=pie)
+    return buf.getvalue()
+
+
 # ---- Encabezado con logo ----
 col_logo, col_titulo = st.columns([1, 5], vertical_alignment="center")
 with col_logo:
@@ -150,12 +335,12 @@ with col_titulo:
     st.caption("Fisicoquímica · Universidad de Antioquia · 2026-2")
 
 # ---- Manual de usuario ----
-RUTA_MANUAL = "manual_usuario.pdf"
-if os.path.exists(RUTA_MANUAL):
-    with open(RUTA_MANUAL, "rb") as f_manual:
-        st.download_button("Descargar manual de usuario", f_manual.read(),
-                           file_name="Manual de usuario - Cinética química.pdf",
-                           mime="application/pdf", key="btn_manual")
+try:
+    st.download_button("Descargar manual de usuario", generar_manual(T_REF_C, tuple(TEMPS_PRED_C)),
+                       file_name="Manual de usuario - Cinética química.pdf",
+                       mime="application/pdf", key="btn_manual")
+except Exception as e:
+    st.caption(f"No se pudo generar el manual de usuario ({e}).")
 st.markdown("---")
 
 # ---------------- CÁLCULOS ----------------
@@ -553,10 +738,11 @@ if orden_pred != mejor:
 cp1, cp2, cp3 = st.columns(3)
 with cp1:
     T_ref = st.number_input(f"Temperatura de referencia ({unidad_T})",
-                            value=32.0 if unidad_T == "°C" else 305.15)
+                            value=T_REF_C if unidad_T == "°C" else round(T_REF_C + 273.15, 2))
 with cp2:
+    desplaz = 0.0 if unidad_T == "°C" else 273.15
     txt_temps = st.text_input(f"Temperaturas a predecir ({unidad_T}), separadas por coma",
-                              "25, 37, 40, 50" if unidad_T == "°C" else "298.15, 310.15, 313.15, 323.15")
+                              ", ".join(f"{x + desplaz:g}" for x in TEMPS_PRED_C))
 with cp3:
     a0_pred = st.number_input(f"Concentración inicial ({unidad_c})", value=float(c[0]))
 
@@ -801,23 +987,10 @@ def generar_pdf(x):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.platypus import (Image, KeepTogether, Paragraph, SimpleDocTemplate,
                                     Spacer, Table, TableStyle)
 
-    # --- Fuente serif con soporte de ², ⁻¹, ·, etc. (viene con matplotlib) ---
-    ruta = os.path.join(matplotlib.get_data_path(), "fonts", "ttf")
-    try:
-        pdfmetrics.registerFont(TTFont("STIX", os.path.join(ruta, "STIXGeneral.ttf")))
-        pdfmetrics.registerFont(TTFont("STIX-B", os.path.join(ruta, "STIXGeneralBol.ttf")))
-        pdfmetrics.registerFont(TTFont("STIX-I", os.path.join(ruta, "STIXGeneralItalic.ttf")))
-        pdfmetrics.registerFont(TTFont("STIX-BI", os.path.join(ruta, "STIXGeneralBolIta.ttf")))
-        pdfmetrics.registerFontFamily("STIX", normal="STIX", bold="STIX-B",
-                                      italic="STIX-I", boldItalic="STIX-BI")
-        f_n, f_b = "STIX", "STIX-B"
-    except Exception:
-        f_n, f_b = "Times-Roman", "Times-Bold"
+    f_n, f_b = fuentes_pdf()
 
     est_cuerpo = ParagraphStyle("cuerpo", fontName=f_n, fontSize=10.5, leading=14.5,
                                 alignment=TA_JUSTIFY, spaceAfter=6)
